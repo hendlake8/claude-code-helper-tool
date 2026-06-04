@@ -7,7 +7,8 @@ using System.Windows.Controls;
 namespace ClaudeCodeHelper
 {
     /// <summary>
-    /// MCP 관리 창. 선택한 여러 프로젝트에 프리셋/직접입력 MCP를 일괄 추가·제거한다.
+    /// 로컬MCP 관리 창. 선택한 여러 프로젝트에 통문장 명령을 실행해 MCP를 추가하고,
+    /// local 스코프 설치분을 추적·제거한다.
     /// </summary>
     public partial class McpManagerWindow : Window
     {
@@ -67,13 +68,6 @@ namespace ClaudeCodeHelper
             lstInstalled.ItemsSource = _tracker.GetInstalled(project);
         }
 
-        /// <summary>선택된 스코프 문자열을 반환한다.</summary>
-        /// <returns>"local" 또는 "project"</returns>
-        private string GetSelectedScope()
-        {
-            return rbProject.IsChecked == true ? "project" : "local";
-        }
-
         /// <summary>로그 한 줄을 추가하고 끝으로 스크롤한다.</summary>
         /// <param name="line">로그 내용</param>
         private void AppendLog(string line)
@@ -86,8 +80,23 @@ namespace ClaudeCodeHelper
         /// <param name="enabled">활성 여부</param>
         private void SetActionsEnabled(bool enabled)
         {
-            btnInstall.IsEnabled = enabled;
+            btnRun.IsEnabled = enabled;
             btnRemove.IsEnabled = enabled;
+        }
+
+        /// <summary>선택된 프로젝트 경로 목록을 반환한다.</summary>
+        /// <returns>선택된 프로젝트 경로 목록</returns>
+        private List<string> GetSelectedProjects()
+        {
+            List<string> projects = new();
+            foreach (object item in lstProjects.SelectedItems)
+            {
+                if (item is string path)
+                {
+                    projects.Add(path);
+                }
+            }
+            return projects;
         }
         #endregion
 
@@ -98,46 +107,52 @@ namespace ClaudeCodeHelper
             RefreshInstalledList();
         }
 
-        /// <summary>"프리셋 추가" — 입력 모달로 새 프리셋을 등록한다.</summary>
-        private void BtnAddPreset_Click(object sender, RoutedEventArgs e)
-        {
-            McpPresetDialog dialog = new() { Owner = this };
-            if (dialog.ShowDialog() == true && dialog.Result != null)
-            {
-                _presetStore.AddOrUpdate(dialog.Result);
-                _presetStore.Save();
-                RefreshPresetList();
-            }
-        }
-
-        /// <summary>"편집" — 선택 프리셋을 모달로 수정한다.</summary>
-        private void BtnEditPreset_Click(object sender, RoutedEventArgs e)
+        /// <summary>프리셋 선택 변경 — 명령 입력 필드와 이름 필드를 채운다.</summary>
+        private void LstPresets_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
             if (lstPresets.SelectedItem is not McpPreset selected)
             {
-                MessageBox.Show("편집할 프리셋을 선택하세요.", "MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            McpPresetDialog dialog = new(selected) { Owner = this };
-            if (dialog.ShowDialog() == true && dialog.Result != null)
-            {
-                _presetStore.AddOrUpdate(dialog.Result);
-                _presetStore.Save();
-                RefreshPresetList();
-            }
+            txtPresetName.Text = selected.Name;
+            txtCommand.Text = selected.CommandLine;
         }
 
-        /// <summary>"삭제" — 선택 프리셋을 제거한다.</summary>
+        /// <summary>"프리셋으로 저장" — 현재 이름+명령을 프리셋으로 저장한다.</summary>
+        private void BtnSavePreset_Click(object sender, RoutedEventArgs e)
+        {
+            string name = txtPresetName.Text.Trim();
+
+            if (string.IsNullOrWhiteSpace(name) == true)
+            {
+                MessageBox.Show("프리셋 이름을 입력하세요.", "로컬MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(txtCommand.Text) == true)
+            {
+                MessageBox.Show("저장할 명령을 입력하세요.", "로컬MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            // 명령문은 사용자 입력 원본 그대로 저장(개행 차단은 입력 단계에서 처리됨).
+            _presetStore.AddOrUpdate(new McpPreset { Name = name, CommandLine = txtCommand.Text });
+            _presetStore.Save();
+            RefreshPresetList();
+            AppendLog($"[저장] 프리셋 '{name}'");
+        }
+
+        /// <summary>"프리셋 삭제" — 선택 프리셋을 제거한다.</summary>
         private void BtnDeletePreset_Click(object sender, RoutedEventArgs e)
         {
             if (lstPresets.SelectedItem is not McpPreset selected)
             {
-                MessageBox.Show("삭제할 프리셋을 선택하세요.", "MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("삭제할 프리셋을 선택하세요.", "로컬MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            MessageBoxResult result = MessageBox.Show($"프리셋 '{selected.Name}'을(를) 삭제하시겠습니까?", "MCP 관리", MessageBoxButton.YesNo, MessageBoxImage.Question);
+            MessageBoxResult result = MessageBox.Show($"프리셋 '{selected.Name}'을(를) 삭제하시겠습니까?", "로컬MCP 관리", MessageBoxButton.YesNo, MessageBoxImage.Question);
             if (result != MessageBoxResult.Yes)
             {
                 return;
@@ -148,35 +163,52 @@ namespace ClaudeCodeHelper
             RefreshPresetList();
         }
 
-        /// <summary>"직접 입력" — 저장 없이 1회용 프리셋으로 즉시 설치한다.</summary>
-        private async void BtnDirectInput_Click(object sender, RoutedEventArgs e)
+        /// <summary>"선택 프로젝트에서 실행" — 명령 입력 내용을 선택 프로젝트들에서 실행한다.</summary>
+        private async void BtnRun_Click(object sender, RoutedEventArgs e)
         {
-            McpPresetDialog dialog = new() { Owner = this };
-            if (dialog.ShowDialog() == true && dialog.Result != null)
+            List<string> projects = GetSelectedProjects();
+            if (projects.Count == 0)
             {
-                await InstallPresetsAsync(new List<McpPreset> { dialog.Result });
-            }
-        }
-
-        /// <summary>"선택 프로젝트에 추가" — 선택 프리셋들을 선택 프로젝트들에 설치한다.</summary>
-        private async void BtnInstall_Click(object sender, RoutedEventArgs e)
-        {
-            List<McpPreset> presets = new();
-            foreach (object item in lstPresets.SelectedItems)
-            {
-                if (item is McpPreset preset)
-                {
-                    presets.Add(preset);
-                }
-            }
-
-            if (presets.Count == 0)
-            {
-                MessageBox.Show("설치할 프리셋을 선택하세요.", "MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("대상 프로젝트를 선택하세요.", "로컬MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
-            await InstallPresetsAsync(presets);
+            // 사용자 입력 원본을 그대로 사용(가공 금지).
+            string commandLine = txtCommand.Text;
+            if (string.IsNullOrWhiteSpace(commandLine) == true)
+            {
+                MessageBox.Show("실행할 명령을 입력하세요.", "로컬MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
+                return;
+            }
+
+            SetActionsEnabled(false);
+            AppendLog("=== 실행 시작 ===");
+
+            await Task.Run(() =>
+            {
+                foreach (string project in projects)
+                {
+                    McpCommandResult result = McpRunner.RunCommandLine(project, commandLine);
+                    Dispatcher.Invoke(() =>
+                    {
+                        AppendLog($"[{(result.Success ? "OK" : "ERR")}] {project} : {commandLine}");
+                        if (string.IsNullOrEmpty(result.Output) == false)
+                        {
+                            AppendLog("    " + result.Output);
+                        }
+
+                        if (result.Success == true)
+                        {
+                            RecordIfLocal(project, commandLine);
+                        }
+                    });
+                }
+            });
+
+            _tracker.Save();
+            RefreshInstalledList();
+            AppendLog("=== 실행 완료 ===");
+            SetActionsEnabled(true);
         }
 
         /// <summary>"선택 항목 제거" — 선택 설치 MCP를 선택 프로젝트들에서 제거한다.</summary>
@@ -185,7 +217,7 @@ namespace ClaudeCodeHelper
             List<string> projects = GetSelectedProjects();
             if (projects.Count == 0)
             {
-                MessageBox.Show("대상 프로젝트를 선택하세요.", "MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("대상 프로젝트를 선택하세요.", "로컬MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -200,7 +232,7 @@ namespace ClaudeCodeHelper
 
             if (targets.Count == 0)
             {
-                MessageBox.Show("제거할 MCP를 '설치된 MCP' 목록에서 선택하세요.", "MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
+                MessageBox.Show("제거할 MCP를 '설치된 MCP' 목록에서 선택하세요.", "로컬MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
                 return;
             }
 
@@ -243,65 +275,28 @@ namespace ClaudeCodeHelper
         }
         #endregion
 
-        #region Batch
-        /// <summary>선택된 프로젝트 경로 목록을 반환한다.</summary>
-        private List<string> GetSelectedProjects()
-        {
-            List<string> projects = new();
-            foreach (object item in lstProjects.SelectedItems)
-            {
-                if (item is string path)
-                {
-                    projects.Add(path);
-                }
-            }
-            return projects;
-        }
-
+        #region Tracking
         /// <summary>
-        /// 선택된 프로젝트들에 주어진 프리셋들을 설치한다(백그라운드 실행).
+        /// 실행 성공한 명령문에서 name/scope를 파싱해 local 스코프만 설치 기록에 반영한다.
+        /// 파싱 실패 또는 local이 아닌 스코프는 추적하지 않고 로그만 남긴다.
         /// </summary>
-        /// <param name="presets">설치할 프리셋 목록</param>
-        private async Task InstallPresetsAsync(List<McpPreset> presets)
+        /// <param name="project">대상 프로젝트 경로</param>
+        /// <param name="commandLine">실행한 명령문</param>
+        private void RecordIfLocal(string project, string commandLine)
         {
-            List<string> projects = GetSelectedProjects();
-            if (projects.Count == 0)
+            if (McpRunner.TryParseAddTarget(commandLine, out string name, out string scope) == false)
             {
-                MessageBox.Show("대상 프로젝트를 선택하세요.", "MCP 관리", MessageBoxButton.OK, MessageBoxImage.Information);
+                AppendLog("    [추적불가] name 파싱 실패 — 제거 목록에 표시되지 않음");
                 return;
             }
 
-            string scope = GetSelectedScope();
-            SetActionsEnabled(false);
-            AppendLog("=== 추가 시작 ===");
-
-            await Task.Run(() =>
+            if (scope != "local")
             {
-                foreach (string project in projects)
-                {
-                    foreach (McpPreset preset in presets)
-                    {
-                        McpCommandResult result = McpRunner.Add(project, preset, scope);
-                        Dispatcher.Invoke(() =>
-                        {
-                            AppendLog($"[{(result.Success ? "OK" : "ERR")}] {project} : add {preset.Name} ({scope})");
-                            if (string.IsNullOrEmpty(result.Output) == false)
-                            {
-                                AppendLog("    " + result.Output);
-                            }
-                            if (result.Success == true)
-                            {
-                                _tracker.RecordAdd(project, preset.Name, scope);
-                            }
-                        });
-                    }
-                }
-            });
+                AppendLog($"    [추적안함] scope={scope} — 로컬 관리 대상 아님");
+                return;
+            }
 
-            _tracker.Save();
-            RefreshInstalledList();
-            AppendLog("=== 추가 완료 ===");
-            SetActionsEnabled(true);
+            _tracker.RecordAdd(project, name, "local");
         }
         #endregion
     }

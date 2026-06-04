@@ -5,10 +5,11 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:ClaudeCodeHelper"
         mc:Ignorable="d"
-        Title="MCP 관리" Height="560" Width="760" MinHeight="460" MinWidth="620">
+        Title="로컬MCP 관리" Height="560" Width="760" MinHeight="460" MinWidth="620">
     <Grid Margin="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="2*"/>
+            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="1.2*"/>
@@ -16,7 +17,7 @@
             <RowDefinition Height="1.5*"/>
         </Grid.RowDefinitions>
 
-        <!-- Row0: 프로젝트(다중) | 프리셋(다중) + 프리셋 버튼 -->
+        <!-- Row0: 프로젝트(다중) | 프리셋(단일) + 프리셋 저장/삭제 -->
         <Grid Grid.Row="0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
@@ -31,49 +32,50 @@
             </DockPanel>
 
             <DockPanel Grid.Column="1" Margin="0,0,8,0">
-                <TextBlock DockPanel.Dock="Top" Text="프리셋 (다중선택)" Margin="0,0,0,4"/>
-                <ListBox x:Name="lstPresets" SelectionMode="Extended" DisplayMemberPath="Name"/>
+                <TextBlock DockPanel.Dock="Top" Text="프리셋 (선택 시 명령에 채워짐)" Margin="0,0,0,4"/>
+                <ListBox x:Name="lstPresets" SelectionMode="Single" DisplayMemberPath="Name"
+                         SelectionChanged="LstPresets_SelectionChanged"/>
             </DockPanel>
 
-            <StackPanel Grid.Column="2" VerticalAlignment="Top" Width="92">
-                <TextBlock Text=" " Margin="0,0,0,4"/>
-                <Button x:Name="btnAddPreset"    Content="프리셋 추가" Click="BtnAddPreset_Click"    Margin="0,0,0,6" Height="28"/>
-                <Button x:Name="btnEditPreset"   Content="편집"       Click="BtnEditPreset_Click"   Margin="0,0,0,6" Height="28"/>
-                <Button x:Name="btnDeletePreset" Content="삭제"       Click="BtnDeletePreset_Click" Margin="0,0,0,6" Height="28"/>
-                <Button x:Name="btnDirectInput"  Content="직접 입력"   Click="BtnDirectInput_Click"  Height="28"/>
+            <StackPanel Grid.Column="2" VerticalAlignment="Top" Width="110">
+                <TextBlock Text="프리셋 이름" Margin="0,0,0,4"/>
+                <TextBox x:Name="txtPresetName" Height="26" Margin="0,0,0,6"/>
+                <Button x:Name="btnSavePreset"   Content="프리셋으로 저장" Click="BtnSavePreset_Click"   Margin="0,0,0,6" Height="28"/>
+                <Button x:Name="btnDeletePreset" Content="프리셋 삭제"     Click="BtnDeletePreset_Click" Height="28"/>
             </StackPanel>
         </Grid>
 
-        <!-- Row1: 스코프 + 추가/제거 -->
-        <Grid Grid.Row="1" Margin="0,10,0,0">
-            <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition Width="*"/>
-                <ColumnDefinition Width="Auto"/>
-            </Grid.ColumnDefinitions>
-            <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="스코프:" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                <RadioButton x:Name="rbLocal"   Content="local"   IsChecked="True" Margin="0,0,12,0" VerticalAlignment="Center"/>
-                <RadioButton x:Name="rbProject" Content="project" VerticalAlignment="Center"/>
-            </StackPanel>
-            <StackPanel Grid.Column="2" Orientation="Horizontal">
-                <Button x:Name="btnInstall" Content="선택 프로젝트에 추가" Click="BtnInstall_Click" Margin="0,0,8,0" Padding="10,0" Height="30"/>
-                <Button x:Name="btnRemove"  Content="선택 항목 제거"     Click="BtnRemove_Click"  Padding="10,0" Height="30"/>
-            </StackPanel>
-        </Grid>
+        <!-- Row1: 명령 라벨 -->
+        <TextBlock Grid.Row="1" Text="실행할 명령 (claude mcp add ... 통째로 입력 / 프리셋 선택)" Margin="0,12,0,4"/>
 
-        <!-- Row2: 설치된 MCP 라벨 + 새로고침 -->
-        <Grid Grid.Row="2" Margin="0,12,0,4">
+        <!-- Row2: 명령 입력(단일 라인 + 가로 스크롤) + 실행 -->
+        <Grid Grid.Row="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBlock Grid.Column="0" Text="설치된 MCP (선택 프로젝트 기준, 제거 대상)" VerticalAlignment="Center"/>
-            <Button Grid.Column="1" x:Name="btnRefreshInstalled" Content="새로고침" Click="BtnRefreshInstalled_Click" Padding="8,0" Height="24"/>
+            <TextBox Grid.Column="0" x:Name="txtCommand" Height="28" VerticalContentAlignment="Center"
+                     AcceptsReturn="False" TextWrapping="NoWrap"
+                     HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
+                     FontFamily="Consolas" Margin="0,0,8,0"/>
+            <Button Grid.Column="1" x:Name="btnRun" Content="선택 프로젝트에서 실행"
+                    Click="BtnRun_Click" Padding="10,0" Height="30"/>
         </Grid>
 
-        <!-- Row3: 설치된 MCP 목록 -->
-        <ListBox Grid.Row="3" x:Name="lstInstalled" SelectionMode="Extended">
+        <!-- Row3: 설치된 MCP 라벨 + 새로고침 + 제거 -->
+        <Grid Grid.Row="3" Margin="0,12,0,4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" Text="설치된 MCP (선택 프로젝트 기준, local만 추적)" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" x:Name="btnRefreshInstalled" Content="새로고침" Click="BtnRefreshInstalled_Click" Padding="8,0" Height="24" Margin="0,0,8,0"/>
+            <Button Grid.Column="2" x:Name="btnRemove" Content="선택 항목 제거" Click="BtnRemove_Click" Padding="8,0" Height="24"/>
+        </Grid>
+
+        <!-- Row4: 설치된 MCP 목록 -->
+        <ListBox Grid.Row="4" x:Name="lstInstalled" SelectionMode="Extended">
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <TextBlock>
@@ -84,11 +86,11 @@
             </ListBox.ItemTemplate>
         </ListBox>
 
-        <!-- Row4: 로그 라벨 -->
-        <TextBlock Grid.Row="4" Text="실행 로그" Margin="0,12,0,4"/>
+        <!-- Row5: 로그 라벨 -->
+        <TextBlock Grid.Row="5" Text="실행 로그" Margin="0,12,0,4"/>
 
-        <!-- Row5: 로그 -->
-        <TextBox Grid.Row="5" x:Name="txtLog" IsReadOnly="True"
+        <!-- Row6: 로그 -->
+        <TextBox Grid.Row="6" x:Name="txtLog" IsReadOnly="True"
                  TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                  FontFamily="Consolas"/>
     </Grid>

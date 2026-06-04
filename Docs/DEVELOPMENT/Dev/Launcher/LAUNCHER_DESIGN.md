@@ -244,14 +244,18 @@ sequenceDiagram
 - [x] FR-5 모든 권한으로 실행 — `chkFullPermission`(전역 토글) → `LaunchClaude(path, fullPermission)`, 상태 `FullPermissionMode`로 영속화
 - [x] 비기능: 계층 분리(PathManager/ProcessLauncher), config 손상 시 빈 상태 시작(`Load` try/catch)
 
-## MCP 관리 (FR-6) 설계
+## 로컬MCP 관리 (FR-6) 설계
 
-선택한 여러 프로젝트에 로컬/프로젝트 스코프 MCP를 프리셋/직접입력으로 일괄 추가·제거하는 **별도 창** 서브시스템.
+선택한 여러 프로젝트에 **통문장 명령**(`claude mcp add ...` 전체)을 실행해 MCP를 추가하고, local 스코프 설치분을 추적·제거하는 **별도 창** 서브시스템.
+
+> **모델 변경(2026-06)**: 구 모델의 프리셋 3분할 입력(이름/명령/인자)·스코프 라디오·`McpPresetDialog`(추가/편집/직접입력 모달)은 **폐기**. 명령문을 통째로 입력/저장하고 메인 UI "경로 실행"처럼 단일 입력 필드에서 실행하는 모델로 단순화.
 
 ### 제약 / 가정 (MCP)
-- MCP 등록은 `claude mcp add/remove` CLI로만(직접 JSON 금지 — 사용자 룰). 제거는 항상 `-s <scope>` 명시 → 글로벌 보호.
+- MCP 등록은 `claude mcp add/remove` CLI로만(직접 JSON 금지 — 사용자 룰). 추가는 사용자가 입력한 통문장을 **원본 그대로**(가공 금지) `cmd /c`로 실행 — 스코프·전송방식·옵션은 모두 명령문에 포함. 제거는 `-s <scope>` 명시 → 글로벌 보호.
 - Windows에서 `claude`는 셸 스크립트(.cmd) 가능성 → **`cmd.exe /c claude ...`** 로 실행.
 - 결과 로그를 위해 `UseShellExecute=false` + 표준출력/에러 리다이렉트(기존 `LaunchClaude`의 `UseShellExecute=true`와 분리).
+- **관리(추적·제거) 대상은 local 스코프만**. 실행 성공 시 통문장에서 name/scope를 파싱해 `scope==local`만 설치 기록에 반영. user/project 스코프 또는 name 파싱 실패는 추적하지 않고 로그만 남김(명령 실행 자체는 수행).
+- 명령 입력 필드는 단일 라인(개행 입력 차단) + 가로 스크롤 → 의도치 않은 개행으로 인한 cmd 파싱 오류 방지.
 
 ### 아키텍처 (MCP)
 
@@ -264,17 +268,15 @@ classDiagram
         -PathManager _pathManager
         -McpPresetStore _presetStore
         -McpInstallTracker _tracker
-        -RunBatchAsync()
+        -BtnRun_Click()
+        -BtnSavePreset_Click()
+        -LstPresets_SelectionChanged()
+        -RecordIfLocal(project, commandLine)
         -AppendLog(line)
-    }
-    class McpPresetDialog {
-        +McpPreset Result
-        +bool ShowDialog()
     }
     class McpPreset {
         +string Name
-        +string Command
-        +List~string~ Args
+        +string CommandLine
     }
     class McpPresetStore {
         +IReadOnlyList~McpPreset~ Presets
@@ -295,8 +297,9 @@ classDiagram
         +Save()
     }
     class McpRunner {
-        +Add(projectPath, preset, scope)$ McpCommandResult
+        +RunCommandLine(projectPath, commandLine)$ McpCommandResult
         +Remove(projectPath, name, scope)$ McpCommandResult
+        +TryParseAddTarget(commandLine, out name, out scope)$ bool
     }
     class McpCommandResult {
         +bool Success
@@ -305,8 +308,7 @@ classDiagram
     MainWindow ..> McpManagerWindow : 연다(비모달)
     McpManagerWindow --> McpPresetStore
     McpManagerWindow --> McpInstallTracker
-    McpManagerWindow ..> McpRunner : 실행
-    McpManagerWindow ..> McpPresetDialog : 추가/편집/직접입력
+    McpManagerWindow ..> McpRunner : 실행/파싱
     McpPresetStore --> McpPreset
     McpInstallTracker --> InstalledMcp
     McpRunner --> McpCommandResult
@@ -314,33 +316,31 @@ classDiagram
 
 | 타입 | 책임 |
 |------|------|
-| `McpPreset` / `McpPresetStore` | 프리셋 데이터 + CRUD (`mcp_presets.json`) |
+| `McpPreset` / `McpPresetStore` | 프리셋 데이터(이름 + 통문장) + CRUD (`mcp_presets.json`) |
 | `InstalledMcp` / `McpInstallTracker` | 프로젝트별 설치 기록 (`mcp_installed.json`) |
-| `McpRunner` | `cmd /c claude mcp add/remove` 실행 + stdout/stderr 캡처 (정적) |
-| `McpManagerWindow` | UI + 다중선택 + 배치 실행 + 로그 |
-| `McpPresetDialog` | 프리셋 입력 모달(추가/편집/직접입력 공용) |
-| `MainWindow` | "MCP 관리" 버튼으로 창 오픈(PathManager 전달) |
+| `McpRunner` | `cmd /c` 통문장 실행(`RunCommandLine`) + `claude mcp remove` + name/scope 파서(`TryParseAddTarget`) + stdout/stderr 캡처 (정적) |
+| `McpManagerWindow` | UI + 프로젝트 다중선택 + 통문장 실행 + local 추적 + 로그 |
+| `MainWindow` | "로컬MCP 관리" 버튼으로 창 오픈(PathManager 전달) |
 
 ### XAML 레이아웃 (McpManagerWindow)
 
 ```
-프로젝트(다중선택, PathHistory 재사용) | 프리셋(다중선택) [추가][편집][삭제][직접입력]
-스코프: (●)local ( )project
-[선택 프로젝트에 추가]   [선택 항목 제거]
-── 설치된 MCP(선택 프로젝트 기준) ──   [새로고침]
+프로젝트(다중선택, PathHistory 재사용) | 프리셋(단일선택, 선택 시 명령에 채워짐) [프리셋이름][프리셋으로 저장][프리셋 삭제]
+실행할 명령: [txtCommand ............... (단일라인 + 가로스크롤)] [선택 프로젝트에서 실행]
+── 설치된 MCP(선택 프로젝트 기준, local만 추적) ──  [새로고침] [선택 항목 제거]
 ── 실행 로그(읽기 전용) ──
 ```
-- 프로젝트/프리셋 `ListBox`는 `SelectionMode="Extended"`(문자열 리스트 유지, 템플릿 변경 불필요).
+- 프로젝트 `ListBox`는 `SelectionMode="Extended"`(다중), 프리셋 `ListBox`는 `SelectionMode="Single"`(단일 — 선택 시 명령 입력 필드 1칸을 채우므로).
+- `txtCommand`: `AcceptsReturn="False"` + `TextWrapping="NoWrap"` + `HorizontalScrollBarVisibility="Auto"`(개행 차단 + 가로 스크롤).
 
 ### 인터페이스 (MCP, 구현 본문 없음)
 
 ```csharp
-/// <summary>MCP 프리셋 정의(직렬화 모델).</summary>
+/// <summary>MCP 프리셋 정의(직렬화 모델). 실행할 명령문 전체를 통째로 보관.</summary>
 public class McpPreset
 {
-    public string Name { get; set; } = "";
-    public string Command { get; set; } = "";
-    public List<string> Args { get; set; } = new();
+    public string Name { get; set; } = "";          // 목록 표시용 이름
+    public string CommandLine { get; set; } = "";   // claude mcp add ... 통문장
 }
 
 /// <summary>프리셋 CRUD(mcp_presets.json).</summary>
@@ -379,18 +379,23 @@ public class McpCommandResult
     public string Output { get; set; } = "";
 }
 
-/// <summary>claude mcp add/remove를 cmd 경유로 실행하고 출력을 캡처한다.</summary>
+/// <summary>claude mcp 명령을 cmd 경유로 실행하고 출력을 캡처한다.</summary>
 public static class McpRunner
 {
-    public static McpCommandResult Add(string projectPath, McpPreset preset, string scope);
+    // 통문장을 원본 그대로 cmd /c로 실행(따옴표 보존)
+    public static McpCommandResult RunCommandLine(string projectPath, string commandLine);
+    // claude mcp remove -s scope name
     public static McpCommandResult Remove(string projectPath, string name, string scope);
+    // 통문장에서 name/scope 파싱(name = add 다음 위치인자, scope = -s/--scope 값·없으면 local)
+    public static bool TryParseAddTarget(string commandLine, out string name, out string scope);
 }
 ```
 
-- **`McpRunner` 실행/캡처**: `ProcessStartInfo { FileName="cmd.exe", UseShellExecute=false, RedirectStandardOutput=true, RedirectStandardError=true, WorkingDirectory=projectPath }`, 인자는 `ArgumentList`로 `{ "/c","claude","mcp","add","-s",scope,name,"--",command,...args }`. 종료코드 0 → 성공.
+- **`RunCommandLine` 실행/캡처**: `ProcessStartInfo { FileName="cmd.exe", Arguments="/c " + commandLine, UseShellExecute=false, RedirectStandardOutput=true, RedirectStandardError=true, WorkingDirectory=projectPath }`. 통문장에 이미 따옴표가 포함되므로 `ArgumentList`(per-arg 재인용)가 아니라 **`Arguments` raw passthrough** 사용. 종료코드 0 → 성공. `Remove`는 `ArgumentList` 방식 유지. 공통 캡처는 private `CaptureProcess`.
+- **`TryParseAddTarget` 파서**: 공백으로 둘러싸인 순수 `--` 구분자(`--scope` 같은 긴 플래그 제외)로 head 분리 → head를 토큰화 → 값 동반 플래그(`-s/-t/-e/-H/--scope/--transport/--env/--header/--client-id/--callback-port`)는 다음 토큰 소비 → 위치인자 중 `add` 다음(없으면 마지막)을 name으로, `-s`/`--scope` 값을 scope(기본 local)로.
 - **파일 경로**: `mcp_presets.json`, `mcp_installed.json` 모두 `AppContext.BaseDirectory` 기준.
 
-### 주요 흐름 — 다중 프로젝트 × 다중 프리셋 추가
+### 주요 흐름 — 통문장 실행 + local 추적
 
 ```mermaid
 sequenceDiagram
@@ -398,15 +403,18 @@ sequenceDiagram
     participant W as McpManagerWindow
     participant R as McpRunner
     participant T as McpInstallTracker
-    U->>W: 프로젝트 N + 프리셋 M + 스코프 선택 → [추가]
-    W->>W: RunBatchAsync (Task.Run, 백그라운드)
+    U->>W: 프리셋 클릭(명령 채움) 또는 직접 타이핑 → 프로젝트 N 선택 → [실행]
+    W->>W: BtnRun_Click (Task.Run, 백그라운드)
     loop 각 프로젝트 p
-        loop 각 프리셋 preset
-            W->>R: Add(p, preset, scope)
-            R-->>W: McpCommandResult
-            W->>W: AppendLog (Dispatcher)
-            alt 성공
-                W->>T: RecordAdd(p, preset.Name, scope)
+        W->>R: RunCommandLine(p, commandLine)  // 원본 그대로
+        R-->>W: McpCommandResult
+        W->>W: AppendLog (Dispatcher)
+        alt 성공
+            W->>R: TryParseAddTarget(commandLine)
+            alt 파싱 성공 && scope==local
+                W->>T: RecordAdd(p, name, "local")
+            else 파싱 실패 / scope!=local
+                W->>W: AppendLog([추적불가]/[추적안함])
             end
         end
     end
@@ -414,38 +422,40 @@ sequenceDiagram
     W->>W: 설치 목록 갱신
 ```
 - 배치는 `Task.Run` + `Dispatcher.Invoke`로 UI 프리징 방지. 제거도 동일 구조(`Remove` → `RecordRemove`).
-- 직접 입력: `McpPresetDialog`로 `{Name,Command,Args}` 입력 → 저장(CRUD) 또는 1회 설치.
+- 프리셋 = 저장된 통문장(클릭 시 입력 필드에 채워짐). 직접 입력 = 입력 필드에 바로 타이핑. 둘 다 실행 경로·추적은 동일(저장 여부만 다름).
 
 ### 데이터 모델 (MCP 저장 파일)
 
 `mcp_presets.json`
 ```json
-{ "Presets": [ { "Name": "serena", "Command": "npx", "Args": ["-y","serena-mcp"] } ] }
+{ "Presets": [ { "Name": "UnityMCP", "CommandLine": "claude mcp add -s local UnityMCP -- \"C:/...\\uvx.exe\" --from \"mcpforunityserver==9.7.1\" mcp-for-unity" } ] }
 ```
 `mcp_installed.json`
 ```json
-{ "D:\\GitPrjs\\A": [ { "Name": "serena", "Scope": "local" } ] }
+{ "D:\\GitPrjs\\A": [ { "Name": "UnityMCP", "Scope": "local" } ] }
 ```
 
 ### 의존성 (MCP)
 - 외부: `System.Diagnostics.Process`, `System.Text.Json` (기본 제공).
-- 내부: `McpManagerWindow` → `PathManager`(경로 재사용) + `McpPresetStore` + `McpInstallTracker` + `McpRunner` + `McpPresetDialog`.
+- 내부: `McpManagerWindow` → `PathManager`(경로 재사용) + `McpPresetStore` + `McpInstallTracker` + `McpRunner`.
 - 기존 영향: `MainWindow`에 버튼+핸들러만. FR-1~5 로직/`ProcessLauncher` 변경 없음.
 
-### 요구사항 충족 검증 (FR-6)
+### 요구사항 충족 검증 (FR-6, 갱신 모델)
 - [x] FR-6 별도 창 — `McpManagerWindow`, 메인 버튼 오픈(비모달)
-- [x] FR-6.1 스코프 — local/project 라디오 → `-s` 인자
-- [x] FR-6.2 프리셋+직접입력 — 프리셋 선택 / `McpPresetDialog`
-- [x] FR-6.3 프리셋 CRUD — `McpPresetStore`(`mcp_presets.json`)
-- [x] FR-6.4 다중 프로젝트 일괄 — `Extended` 다중선택 × 프리셋 루프
-- [x] FR-6.5 설치 목록 — `McpInstallTracker`(`mcp_installed.json`), `claude mcp list` 미사용
-- [x] FR-6.6 결과 로그 — `RunBatchAsync` + 로그 TextBox
+- [x] FR-6.1 스코프 — 라디오 폐기, 명령 통문장에 `-s` 포함(추적은 local만)
+- [x] FR-6.2 추가 입력 — 단일 명령 입력 필드(직접 타이핑 / 프리셋 선택), `McpPresetDialog` 폐기
+- [x] FR-6.3 프리셋 CRUD — `McpPresetStore`(`mcp_presets.json`), 통문장 단위
+- [x] FR-6.4 다중 프로젝트 일괄 — 프로젝트 `Extended` 다중선택 × 단일 명령
+- [x] FR-6.5 설치 목록 — `McpInstallTracker`(`mcp_installed.json`), local만 추적
+- [x] FR-6.6 결과 로그 — `BtnRun_Click` 배치 + 로그 TextBox
 - [x] 안전장치 — remove 항상 `-s <scope>` 명시
 
-### MCP 확정 결정 (구 미해결 → 확정)
-- **인자 escaping**: `ArgumentList` + `cmd /c`로 처리(단순 명령 가정, 특수문자는 구현 시 검증).
+### MCP 확정 결정 (갱신 모델)
+- **명령 입력 방식**: 통문장 원본 그대로 실행(가공/escaping 안 함). 따옴표는 사용자 입력에 포함 → `Arguments` raw passthrough로 보존.
+- **추적 범위**: local 스코프만. user/project·파싱실패는 실행만 하고 추적 제외(로그 안내).
+- **마이그레이션**: 구버전 `mcp_presets.json`(`{Name,Command,Args}`)은 변환하지 않음(스킵) — `CommandLine` 빈 채 로드되므로 필요 시 사용자가 파일 삭제.
 - **`claude` 미설치/PATH**: 별도 사전검증 없이 에러를 로그로 안내.
-- **설치기록 드리프트**: 툴 자체 기록만(현 범위). `claude mcp list` 대조 새로고침은 보류(YAGNI).
+- **설치기록 드리프트**: 툴 자체 기록만(현 범위). `claude mcp list` 대조는 보류(YAGNI).
 - **창 모달**: 비모달(`Show`).
 
 ## 즐겨찾기 (FR-7) 설계
@@ -501,11 +511,11 @@ classDiagram
 │ ⭐ 즐겨찾기 (라벨)         │ │ [삭제]    │
 │ ★ D:\A   (lstFavorites*) │ │ [전체삭제] │
 │ 저장된 경로 목록 (라벨)    │ │ [폴더열기] │
-│ ☆ D:\A   (lstPaths*)     │ │ [MCP 관리]│
+│ ☆ D:\A   (lstPaths*)     │ │[로컬MCP관리]│
 │ ★ D:\B                   │ └──────────┘
 └──────────────────────────┘
 ```
-- 루트 R2(`*`) → 2-Column Grid. Col0(`*`) 내부 4-Row: `Auto`(라벨)/`*`(lstFavorites)/`Auto`(라벨)/`*`(lstPaths) → **두 리스트 동일 비율 확장**. Col1(`Auto`): 버튼열(삭제/전체삭제/폴더열기/MCP관리 — txtPath 기준). **사이드 "즐겨찾기" 버튼은 제거**(행별 ★로 대체).
+- 루트 R2(`*`) → 2-Column Grid. Col0(`*`) 내부 4-Row: `Auto`(라벨)/`*`(lstFavorites)/`Auto`(라벨)/`*`(lstPaths) → **두 리스트 동일 비율 확장**. Col1(`Auto`): 버튼열(삭제/전체삭제/폴더열기/로컬MCP관리 — txtPath 기준). **사이드 "즐겨찾기" 버튼은 제거**(행별 ★로 대체).
 - **행 템플릿(`ItemTemplate`, 두 ListBox 공통)**: `StackPanel(Horizontal)` = ★/☆ Button(`Content={Binding StarGlyph}`, `Tag={Binding Path}`, `Click=StarButton_Click`, 배경/테두리 없음, 금색) + 경로 `TextBlock`. `DisplayMemberPath`는 사용 안 함.
 
 ### 인터페이스 (즐겨찾기, 구현 본문 없음)

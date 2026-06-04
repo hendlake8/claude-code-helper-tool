@@ -275,7 +275,7 @@ namespace ClaudeCodeHelper
         }
 
         /// <summary>
-        /// "MCP 관리" — MCP 관리 창을 비모달로 연다.
+        /// "로컬MCP 관리" — 로컬MCP 관리 창을 비모달로 연다.
         /// </summary>
         /// <param name="sender">이벤트 발생 컨트롤</param>
         /// <param name="e">이벤트 인자</param>
