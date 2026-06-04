@@ -20,6 +20,9 @@ namespace ClaudeCodeHelper
         /// <summary>모든 권한으로 실행(claude --dangerously-skip-permissions) 여부.</summary>
         public bool FullPermissionMode { get; set; } = false;
 
+        /// <summary>즐겨찾기 경로 목록(최신이 앞).</summary>
+        public List<string> FavoritePaths { get; set; } = new();
+
         /// <summary>
         /// 실행 파일과 같은 폴더의 config 파일 전체 경로를 반환한다.
         /// </summary>

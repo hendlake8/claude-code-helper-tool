@@ -5,10 +5,22 @@
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         xmlns:local="clr-namespace:ClaudeCodeHelper"
         mc:Ignorable="d"
-        Title="ClaudeCodeHelper" Height="320" Width="720" MinHeight="240" MinWidth="520">
+        Title="ClaudeCodeHelper" Height="480" Width="720" MinHeight="360" MinWidth="520">
+    <Window.Resources>
+        <!-- 경로 행 템플릿: ★/☆ 토글 버튼 + 경로 텍스트 (두 리스트 공용) -->
+        <DataTemplate x:Key="PathItemTemplate">
+            <StackPanel Orientation="Horizontal">
+                <Button Content="{Binding StarGlyph}" Tag="{Binding Path}"
+                        Click="StarButton_Click" ToolTip="즐겨찾기 토글"
+                        Background="Transparent" BorderThickness="0"
+                        Foreground="#E0A000" Cursor="Hand"
+                        Padding="2,0" Margin="0,0,6,0" FontSize="14"/>
+                <TextBlock Text="{Binding Path}" VerticalAlignment="Center"/>
+            </StackPanel>
+        </DataTemplate>
+    </Window.Resources>
     <Grid Margin="10">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
@@ -34,20 +46,35 @@
                   Checked="ChkFullPermission_Changed" Unchecked="ChkFullPermission_Changed"
                   Margin="0,10,0,0"/>
 
-        <!-- Row2: 목록 라벨 -->
-        <TextBlock Grid.Row="2" Text="저장된 경로 목록:" Margin="0,12,0,4"/>
-
-        <!-- Row3: 목록 + 버튼 -->
-        <Grid Grid.Row="3">
+        <!-- Row2: 즐겨찾기/저장목록 두 리스트 + 공유 버튼열 -->
+        <Grid Grid.Row="2" Margin="0,12,0,0">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <ListBox Grid.Column="0" x:Name="lstPaths" SelectionChanged="LstPaths_SelectionChanged"/>
+
+            <!-- 좌: 두 리스트(둘 다 * 높이로 동일 확장) -->
+            <Grid Grid.Column="0">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+                <TextBlock Grid.Row="0" Text="⭐ 즐겨찾기" Margin="0,0,0,4"/>
+                <ListBox   Grid.Row="1" x:Name="lstFavorites" SelectionChanged="LstFavorites_SelectionChanged"
+                           ItemTemplate="{StaticResource PathItemTemplate}"/>
+                <TextBlock Grid.Row="2" Text="저장된 경로 목록" Margin="0,10,0,4"/>
+                <ListBox   Grid.Row="3" x:Name="lstPaths" SelectionChanged="LstPaths_SelectionChanged"
+                           ItemTemplate="{StaticResource PathItemTemplate}"/>
+            </Grid>
+
+            <!-- 우: 공유 버튼열 (txtPath 기준 동작) -->
             <StackPanel Grid.Column="1" Margin="8,0,0,0" Width="90">
                 <Button x:Name="btnDelete"     Content="삭제"      Click="BtnDelete_Click"     Margin="0,0,0,6" Height="28"/>
                 <Button x:Name="btnClearAll"   Content="전체 삭제"  Click="BtnClearAll_Click"   Margin="0,0,0,6" Height="28"/>
                 <Button x:Name="btnOpenFolder" Content="폴더 열기"  Click="BtnOpenFolder_Click" Height="28"/>
+                <Button x:Name="btnMcpManager" Content="MCP 관리"  Click="BtnMcpManager_Click" Margin="0,16,0,0" Height="28"/>
             </StackPanel>
         </Grid>
     </Grid>

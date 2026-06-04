@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Windows;
 using System.Windows.Controls;
@@ -26,6 +27,7 @@ namespace ClaudeCodeHelper
             _pathManager = new PathManager(AppConfig.GetDefaultConfigPath());
             _pathManager.Load();
             RefreshPathList();
+            RefreshFavoritesList();
 
             txtPath.Text = _pathManager.LastUsedPath;
             chkFullPermission.IsChecked = _pathManager.FullPermissionMode;
@@ -39,8 +41,29 @@ namespace ClaudeCodeHelper
         /// </summary>
         private void RefreshPathList()
         {
+            List<PathItem> items = new();
+            foreach (string path in _pathManager.PathHistory)
+            {
+                items.Add(new PathItem { Path = path, IsFavorite = _pathManager.IsFavorite(path) });
+            }
+
             lstPaths.ItemsSource = null;
-            lstPaths.ItemsSource = _pathManager.PathHistory;
+            lstPaths.ItemsSource = items;
+        }
+
+        /// <summary>
+        /// 즐겨찾기 ListBox를 현재 즐겨찾기 목록으로 다시 채운다.
+        /// </summary>
+        private void RefreshFavoritesList()
+        {
+            List<PathItem> items = new();
+            foreach (string path in _pathManager.FavoritePaths)
+            {
+                items.Add(new PathItem { Path = path, IsFavorite = true });
+            }
+
+            lstFavorites.ItemsSource = null;
+            lstFavorites.ItemsSource = items;
         }
         #endregion
 
@@ -126,12 +149,47 @@ namespace ClaudeCodeHelper
         /// <param name="e">선택 변경 인자</param>
         private void LstPaths_SelectionChanged(object sender, SelectionChangedEventArgs e)
         {
-            if (lstPaths.SelectedItem == null)
+            if (lstPaths.SelectedItem is not PathItem item)
             {
                 return;
             }
 
-            txtPath.Text = lstPaths.SelectedItem.ToString();
+            txtPath.Text = item.Path;
+            lstFavorites.SelectedIndex = -1;
+        }
+
+        /// <summary>
+        /// 즐겨찾기 목록 선택 변경 — 선택한 경로를 텍스트박스에 반영한다.
+        /// </summary>
+        /// <param name="sender">이벤트 발생 컨트롤</param>
+        /// <param name="e">선택 변경 인자</param>
+        private void LstFavorites_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (lstFavorites.SelectedItem is not PathItem item)
+            {
+                return;
+            }
+
+            txtPath.Text = item.Path;
+            lstPaths.SelectedIndex = -1;
+        }
+
+        /// <summary>
+        /// 행의 ★/☆ 버튼 클릭 — 해당 경로의 즐겨찾기 상태를 토글한다.
+        /// </summary>
+        /// <param name="sender">이벤트 발생 컨트롤(Tag = 경로)</param>
+        /// <param name="e">이벤트 인자</param>
+        private void StarButton_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button button || button.Tag is not string path)
+            {
+                return;
+            }
+
+            _pathManager.ToggleFavorite(path);
+            _pathManager.Save();
+            RefreshPathList();
+            RefreshFavoritesList();
         }
 
         /// <summary>
@@ -141,15 +199,11 @@ namespace ClaudeCodeHelper
         /// <param name="e">이벤트 인자</param>
         private void BtnDelete_Click(object sender, RoutedEventArgs e)
         {
-            if (lstPaths.SelectedItem == null)
+            string path = txtPath.Text;
+
+            if (string.IsNullOrWhiteSpace(path) == true)
             {
                 MessageBox.Show("삭제할 경로를 선택하세요.", "ClaudeCodeHelper", MessageBoxButton.OK, MessageBoxImage.Information);
-                return;
-            }
-
-            string? selected = lstPaths.SelectedItem.ToString();
-            if (selected == null)
-            {
                 return;
             }
 
@@ -159,9 +213,10 @@ namespace ClaudeCodeHelper
                 return;
             }
 
-            _pathManager.RemovePath(selected);
+            _pathManager.RemovePath(path);
             _pathManager.Save();
             RefreshPathList();
+            RefreshFavoritesList();
         }
 
         /// <summary>
@@ -185,6 +240,7 @@ namespace ClaudeCodeHelper
             _pathManager.ClearAll();
             _pathManager.Save();
             RefreshPathList();
+            RefreshFavoritesList();
         }
 
         /// <summary>
@@ -216,6 +272,17 @@ namespace ClaudeCodeHelper
             {
                 MessageBox.Show($"폴더를 열 수 없습니다:\n{ex.Message}", "ClaudeCodeHelper", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        /// <summary>
+        /// "MCP 관리" — MCP 관리 창을 비모달로 연다.
+        /// </summary>
+        /// <param name="sender">이벤트 발생 컨트롤</param>
+        /// <param name="e">이벤트 인자</param>
+        private void BtnMcpManager_Click(object sender, RoutedEventArgs e)
+        {
+            McpManagerWindow window = new(_pathManager) { Owner = this };
+            window.Show();
         }
         #endregion
     }

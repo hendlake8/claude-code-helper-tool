@@ -20,6 +20,9 @@
     <!-- WPF 네이티브 DLL(wpfgfx 등)도 exe에 임베드 → exe 파일 하나만 옮겨도 실행됨
          (실행 시 임시 폴더에 자동 추출) -->
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- Release/배포에서 .pdb 미생성 (publish 폴더 깔끔하게) -->
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
   </PropertyGroup>
 
 </Project>

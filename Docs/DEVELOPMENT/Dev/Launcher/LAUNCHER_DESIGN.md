@@ -244,10 +244,350 @@ sequenceDiagram
 - [x] FR-5 모든 권한으로 실행 — `chkFullPermission`(전역 토글) → `LaunchClaude(path, fullPermission)`, 상태 `FullPermissionMode`로 영속화
 - [x] 비기능: 계층 분리(PathManager/ProcessLauncher), config 손상 시 빈 상태 시작(`Load` try/catch)
 
+## MCP 관리 (FR-6) 설계
+
+선택한 여러 프로젝트에 로컬/프로젝트 스코프 MCP를 프리셋/직접입력으로 일괄 추가·제거하는 **별도 창** 서브시스템.
+
+### 제약 / 가정 (MCP)
+- MCP 등록은 `claude mcp add/remove` CLI로만(직접 JSON 금지 — 사용자 룰). 제거는 항상 `-s <scope>` 명시 → 글로벌 보호.
+- Windows에서 `claude`는 셸 스크립트(.cmd) 가능성 → **`cmd.exe /c claude ...`** 로 실행.
+- 결과 로그를 위해 `UseShellExecute=false` + 표준출력/에러 리다이렉트(기존 `LaunchClaude`의 `UseShellExecute=true`와 분리).
+
+### 아키텍처 (MCP)
+
+```mermaid
+classDiagram
+    class MainWindow {
+        -BtnMcpManager_Click()
+    }
+    class McpManagerWindow {
+        -PathManager _pathManager
+        -McpPresetStore _presetStore
+        -McpInstallTracker _tracker
+        -RunBatchAsync()
+        -AppendLog(line)
+    }
+    class McpPresetDialog {
+        +McpPreset Result
+        +bool ShowDialog()
+    }
+    class McpPreset {
+        +string Name
+        +string Command
+        +List~string~ Args
+    }
+    class McpPresetStore {
+        +IReadOnlyList~McpPreset~ Presets
+        +Load()
+        +Save()
+        +AddOrUpdate(preset)
+        +Remove(name)
+    }
+    class InstalledMcp {
+        +string Name
+        +string Scope
+    }
+    class McpInstallTracker {
+        +GetInstalled(projectPath) IReadOnlyList~InstalledMcp~
+        +RecordAdd(projectPath, name, scope)
+        +RecordRemove(projectPath, name, scope)
+        +Load()
+        +Save()
+    }
+    class McpRunner {
+        +Add(projectPath, preset, scope)$ McpCommandResult
+        +Remove(projectPath, name, scope)$ McpCommandResult
+    }
+    class McpCommandResult {
+        +bool Success
+        +string Output
+    }
+    MainWindow ..> McpManagerWindow : 연다(비모달)
+    McpManagerWindow --> McpPresetStore
+    McpManagerWindow --> McpInstallTracker
+    McpManagerWindow ..> McpRunner : 실행
+    McpManagerWindow ..> McpPresetDialog : 추가/편집/직접입력
+    McpPresetStore --> McpPreset
+    McpInstallTracker --> InstalledMcp
+    McpRunner --> McpCommandResult
+```
+
+| 타입 | 책임 |
+|------|------|
+| `McpPreset` / `McpPresetStore` | 프리셋 데이터 + CRUD (`mcp_presets.json`) |
+| `InstalledMcp` / `McpInstallTracker` | 프로젝트별 설치 기록 (`mcp_installed.json`) |
+| `McpRunner` | `cmd /c claude mcp add/remove` 실행 + stdout/stderr 캡처 (정적) |
+| `McpManagerWindow` | UI + 다중선택 + 배치 실행 + 로그 |
+| `McpPresetDialog` | 프리셋 입력 모달(추가/편집/직접입력 공용) |
+| `MainWindow` | "MCP 관리" 버튼으로 창 오픈(PathManager 전달) |
+
+### XAML 레이아웃 (McpManagerWindow)
+
+```
+프로젝트(다중선택, PathHistory 재사용) | 프리셋(다중선택) [추가][편집][삭제][직접입력]
+스코프: (●)local ( )project
+[선택 프로젝트에 추가]   [선택 항목 제거]
+── 설치된 MCP(선택 프로젝트 기준) ──   [새로고침]
+── 실행 로그(읽기 전용) ──
+```
+- 프로젝트/프리셋 `ListBox`는 `SelectionMode="Extended"`(문자열 리스트 유지, 템플릿 변경 불필요).
+
+### 인터페이스 (MCP, 구현 본문 없음)
+
+```csharp
+/// <summary>MCP 프리셋 정의(직렬화 모델).</summary>
+public class McpPreset
+{
+    public string Name { get; set; } = "";
+    public string Command { get; set; } = "";
+    public List<string> Args { get; set; } = new();
+}
+
+/// <summary>프리셋 CRUD(mcp_presets.json).</summary>
+public class McpPresetStore
+{
+    public McpPresetStore(string filePath);
+    public IReadOnlyList<McpPreset> Presets { get; }
+    public void Load();   // 부재/손상 시 빈 목록
+    public void Save();
+    public void AddOrUpdate(McpPreset preset);  // 이름 기준
+    public void Remove(string name);
+}
+
+/// <summary>설치된 MCP 한 건.</summary>
+public class InstalledMcp
+{
+    public string Name { get; set; } = "";
+    public string Scope { get; set; } = "local";
+}
+
+/// <summary>프로젝트별 설치 기록(mcp_installed.json). claude mcp list 미사용.</summary>
+public class McpInstallTracker
+{
+    public McpInstallTracker(string filePath);
+    public void Load();
+    public void Save();
+    public IReadOnlyList<InstalledMcp> GetInstalled(string projectPath);
+    public void RecordAdd(string projectPath, string name, string scope);
+    public void RecordRemove(string projectPath, string name, string scope);
+}
+
+/// <summary>claude mcp 실행 결과.</summary>
+public class McpCommandResult
+{
+    public bool Success { get; set; }
+    public string Output { get; set; } = "";
+}
+
+/// <summary>claude mcp add/remove를 cmd 경유로 실행하고 출력을 캡처한다.</summary>
+public static class McpRunner
+{
+    public static McpCommandResult Add(string projectPath, McpPreset preset, string scope);
+    public static McpCommandResult Remove(string projectPath, string name, string scope);
+}
+```
+
+- **`McpRunner` 실행/캡처**: `ProcessStartInfo { FileName="cmd.exe", UseShellExecute=false, RedirectStandardOutput=true, RedirectStandardError=true, WorkingDirectory=projectPath }`, 인자는 `ArgumentList`로 `{ "/c","claude","mcp","add","-s",scope,name,"--",command,...args }`. 종료코드 0 → 성공.
+- **파일 경로**: `mcp_presets.json`, `mcp_installed.json` 모두 `AppContext.BaseDirectory` 기준.
+
+### 주요 흐름 — 다중 프로젝트 × 다중 프리셋 추가
+
+```mermaid
+sequenceDiagram
+    participant U as 사용자
+    participant W as McpManagerWindow
+    participant R as McpRunner
+    participant T as McpInstallTracker
+    U->>W: 프로젝트 N + 프리셋 M + 스코프 선택 → [추가]
+    W->>W: RunBatchAsync (Task.Run, 백그라운드)
+    loop 각 프로젝트 p
+        loop 각 프리셋 preset
+            W->>R: Add(p, preset, scope)
+            R-->>W: McpCommandResult
+            W->>W: AppendLog (Dispatcher)
+            alt 성공
+                W->>T: RecordAdd(p, preset.Name, scope)
+            end
+        end
+    end
+    W->>T: Save()
+    W->>W: 설치 목록 갱신
+```
+- 배치는 `Task.Run` + `Dispatcher.Invoke`로 UI 프리징 방지. 제거도 동일 구조(`Remove` → `RecordRemove`).
+- 직접 입력: `McpPresetDialog`로 `{Name,Command,Args}` 입력 → 저장(CRUD) 또는 1회 설치.
+
+### 데이터 모델 (MCP 저장 파일)
+
+`mcp_presets.json`
+```json
+{ "Presets": [ { "Name": "serena", "Command": "npx", "Args": ["-y","serena-mcp"] } ] }
+```
+`mcp_installed.json`
+```json
+{ "D:\\GitPrjs\\A": [ { "Name": "serena", "Scope": "local" } ] }
+```
+
+### 의존성 (MCP)
+- 외부: `System.Diagnostics.Process`, `System.Text.Json` (기본 제공).
+- 내부: `McpManagerWindow` → `PathManager`(경로 재사용) + `McpPresetStore` + `McpInstallTracker` + `McpRunner` + `McpPresetDialog`.
+- 기존 영향: `MainWindow`에 버튼+핸들러만. FR-1~5 로직/`ProcessLauncher` 변경 없음.
+
+### 요구사항 충족 검증 (FR-6)
+- [x] FR-6 별도 창 — `McpManagerWindow`, 메인 버튼 오픈(비모달)
+- [x] FR-6.1 스코프 — local/project 라디오 → `-s` 인자
+- [x] FR-6.2 프리셋+직접입력 — 프리셋 선택 / `McpPresetDialog`
+- [x] FR-6.3 프리셋 CRUD — `McpPresetStore`(`mcp_presets.json`)
+- [x] FR-6.4 다중 프로젝트 일괄 — `Extended` 다중선택 × 프리셋 루프
+- [x] FR-6.5 설치 목록 — `McpInstallTracker`(`mcp_installed.json`), `claude mcp list` 미사용
+- [x] FR-6.6 결과 로그 — `RunBatchAsync` + 로그 TextBox
+- [x] 안전장치 — remove 항상 `-s <scope>` 명시
+
+### MCP 확정 결정 (구 미해결 → 확정)
+- **인자 escaping**: `ArgumentList` + `cmd /c`로 처리(단순 명령 가정, 특수문자는 구현 시 검증).
+- **`claude` 미설치/PATH**: 별도 사전검증 없이 에러를 로그로 안내.
+- **설치기록 드리프트**: 툴 자체 기록만(현 범위). `claude mcp list` 대조 새로고침은 보류(YAGNI).
+- **창 모달**: 비모달(`Show`).
+
+## 즐겨찾기 (FR-7) 설계
+
+자주 쓰는 프로젝트를 별도 즐겨찾기 리스트로 빠르게 접근. 기존 MainWindow/PathManager/AppConfig 확장.
+
+### 핵심 결정 (즐겨찾기)
+- **활성 경로 SSOT = `txtPath.Text`**. 두 목록(즐겨찾기/저장목록)의 선택은 모두 `txtPath`에 반영되고, 실행/삭제/폴더열기/즐겨찾기 버튼은 전부 `txtPath` 기준 동작.
+- 즐겨찾기 경로는 `PathHistory`의 부분집합. 경로 완전 삭제 시 `FavoritePaths`도 동반 정리.
+
+### 아키텍처 (변경 델타)
+
+```mermaid
+classDiagram
+    class AppConfig {
+        +List~string~ PathHistory
+        +string LastUsedPath
+        +bool FullPermissionMode
+        +List~string~ FavoritePaths
+    }
+    class PathManager {
+        +IReadOnlyList~string~ FavoritePaths
+        +IsFavorite(path) bool
+        +ToggleFavorite(path)
+        +RemovePath(path)
+        +ClearAll()
+    }
+    class MainWindow {
+        -RefreshPathList()
+        -RefreshFavoritesList()
+        -StarButton_Click()
+        -LstFavorites_SelectionChanged()
+        -LstPaths_SelectionChanged()
+    }
+    class PathItem {
+        +string Path
+        +bool IsFavorite
+        +string StarGlyph
+    }
+    MainWindow --> PathManager
+    MainWindow ..> PathItem : 표시 항목
+    PathManager --> AppConfig
+```
+
+> **UI 방식(갱신)**: 사이드 "즐겨찾기" 버튼 대신 **각 리스트 행의 ★/☆ 토글 버튼**. 두 ListBox는 `List<string>`이 아니라 표시 객체 `PathItem`(경로+즐겨찾기여부)을 바인딩하고 `ItemTemplate`로 행마다 별을 표시한다. 데이터 계층(`PathManager`/`AppConfig`/config)은 무변경.
+
+### XAML 레이아웃 (두 목록 모두 창 크기 따라 확장)
+
+```
+경로: [txtPath...] [찾아보기][실행]              R0 Auto
+[✓] 모든 권한으로 실행 (...)                     R1 Auto
+┌ 좌(*) ───────────────────┐ ┌ 우(Auto) ┐       R2 *
+│ ⭐ 즐겨찾기 (라벨)         │ │ [삭제]    │
+│ ★ D:\A   (lstFavorites*) │ │ [전체삭제] │
+│ 저장된 경로 목록 (라벨)    │ │ [폴더열기] │
+│ ☆ D:\A   (lstPaths*)     │ │ [MCP 관리]│
+│ ★ D:\B                   │ └──────────┘
+└──────────────────────────┘
+```
+- 루트 R2(`*`) → 2-Column Grid. Col0(`*`) 내부 4-Row: `Auto`(라벨)/`*`(lstFavorites)/`Auto`(라벨)/`*`(lstPaths) → **두 리스트 동일 비율 확장**. Col1(`Auto`): 버튼열(삭제/전체삭제/폴더열기/MCP관리 — txtPath 기준). **사이드 "즐겨찾기" 버튼은 제거**(행별 ★로 대체).
+- **행 템플릿(`ItemTemplate`, 두 ListBox 공통)**: `StackPanel(Horizontal)` = ★/☆ Button(`Content={Binding StarGlyph}`, `Tag={Binding Path}`, `Click=StarButton_Click`, 배경/테두리 없음, 금색) + 경로 `TextBlock`. `DisplayMemberPath`는 사용 안 함.
+
+### 인터페이스 (즐겨찾기, 구현 본문 없음)
+
+```csharp
+// AppConfig 추가
+/// <summary>즐겨찾기 경로 목록(최신이 앞).</summary>
+public List<string> FavoritePaths { get; set; } = new();
+```
+
+```csharp
+// PathManager 추가
+/// <summary>즐겨찾기 경로 목록(읽기 전용).</summary>
+public IReadOnlyList<string> FavoritePaths { get; }
+/// <summary>해당 경로가 즐겨찾기인지 여부.</summary>
+public bool IsFavorite(string path);
+/// <summary>즐겨찾기 토글(있으면 제거, 없으면 최상단 추가).</summary>
+public void ToggleFavorite(string path);
+// RemovePath/ClearAll: FavoritePaths도 동반 정리 (시그니처 불변)
+```
+
+```csharp
+// 신규: 리스트 표시 전용 항목(직렬화 대상 아님)
+public class PathItem
+{
+    public string Path { get; set; } = "";
+    public bool IsFavorite { get; set; }
+    public string StarGlyph => IsFavorite ? "★" : "☆";
+}
+```
+
+```csharp
+// MainWindow 추가/변경
+private void RefreshPathList();        // PathHistory → List<PathItem>(IsFavorite=IsFavorite(p))
+private void RefreshFavoritesList();   // FavoritePaths → List<PathItem>(IsFavorite=true)
+private void StarButton_Click(object sender, RoutedEventArgs e);  // 행 ★ 클릭(Tag=경로) → ToggleFavorite → Save → 두 목록 재바인딩
+private void LstFavorites_SelectionChanged(object sender, SelectionChangedEventArgs e);  // SelectedItem(PathItem).Path → txtPath
+// LstPaths_SelectionChanged도 PathItem.Path로 캐스팅. 사이드 BtnFavorite_Click 제거.
+```
+
+### 주요 흐름 (즐겨찾기)
+
+```mermaid
+sequenceDiagram
+    participant U as 사용자
+    participant B as 행 ★ 버튼
+    participant W as MainWindow
+    participant P as PathManager
+    U->>B: 행의 ★/☆ 클릭
+    B->>W: StarButton_Click (Tag = 경로)
+    W->>P: ToggleFavorite(path)
+    W->>P: Save()
+    W->>W: RefreshPathList() + RefreshFavoritesList()
+    Note over W: 두 목록 재바인딩 → 별 상태/즐겨찾기 목록 갱신
+```
+- 선택 연동(별도): 경로 텍스트 영역 클릭 → 행 선택 → `SelectedItem(PathItem).Path` → `txtPath`(상대 목록 선택 해제). 별 버튼 클릭은 토글만 담당.
+- 삭제 연동: `BtnDelete`/`BtnClearAll` → `RemovePath`/`ClearAll`(FavoritePaths 정리) → `Save` → `RefreshPathList` + `RefreshFavoritesList`.
+- **행동 변화**: `BtnDelete`가 기존 `lstPaths.SelectedItem` → `txtPath.Text` 기준으로 전환(두 목록 통합, 의도적).
+
+### 데이터 모델 (config 확장)
+```json
+{ "PathHistory": ["D:\\A","D:\\B"], "FavoritePaths": ["D:\\A"], "LastUsedPath": "D:\\A", "FullPermissionMode": false }
+```
+
+### 요구사항 충족 검증 (FR-7)
+- [x] 별도 즐겨찾기 리스트 — `lstFavorites` + `lstPaths`, 둘 다 `*` 확장
+- [x] 행별 ★/☆ 토글 — `ItemTemplate`의 별 버튼 + `StarButton_Click` → `ToggleFavorite`
+- [x] 등록 시 활성(★)/미등록 비활성(☆) 표시 — `PathItem.StarGlyph`
+- [x] 두 목록 선택 → `txtPath` 연동 — 두 SelectionChanged 핸들러(PathItem.Path 캐스팅)
+- [x] 즐겨찾기 항목도 실행/삭제/폴더열기 — 모두 `txtPath` 기준
+- [x] `FavoritePaths` config 저장(기존 호환), 최신 등록 위(최상단 삽입)
+- [x] 삭제 연동 — RemovePath/ClearAll이 FavoritePaths 정리
+
+### 즐겨찾기 확정 결정
+- UI: 행별 ★/☆ 토글(사이드 버튼 폐기). 별 색까지 분기는 생략(글리프 교체만).
+- 정렬 없음(최신 위), 드래그 재정렬 보류(YAGNI). 미해결 없음.
+
 ## 미해결 / 추후 결정 사항
 1. **Window 제목** — 원본은 `ClaudeHelper`. 새 툴 이름 `ClaudeCodeHelper`로 바꿀지? (권장: `ClaudeCodeHelper`)
 2. **`claude` 미설치/PATH 부재 시** — `cmd /k`라 창은 뜨고 "claude: 명령을 찾을 수 없음"이 표시됨. 별도 사전 검증 없이 원본대로 둘지? (1:1 복원이면 그대로 둠 — 권장)
+- (MCP 관리 FR-6 / 즐겨찾기 FR-7: 미해결 없음 — 각 섹션 확정 결정으로 모두 닫힘)
 
 ## 다음 단계 (사용자 결정)
 - **실행 순서 도출**: `/hs:workflow`
-- **바로 구현**: `/hs:implement` — 규모가 작아 설계→구현 직행 적합
+- **바로 구현**: `/hs:implement` — FR-1~5는 완료, FR-6(MCP)은 규모상 workflow 경유 권장

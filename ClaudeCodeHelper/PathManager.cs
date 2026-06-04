@@ -50,6 +50,39 @@ namespace ClaudeCodeHelper
             set { _config.FullPermissionMode = value; }
         }
 
+        /// <summary>즐겨찾기 경로 목록(읽기 전용).</summary>
+        public IReadOnlyList<string> FavoritePaths
+        {
+            get { return _config.FavoritePaths; }
+        }
+
+        /// <summary>
+        /// 해당 경로가 즐겨찾기인지 여부를 반환한다.
+        /// </summary>
+        /// <param name="path">확인할 경로</param>
+        /// <returns>즐겨찾기면 true</returns>
+        public bool IsFavorite(string path)
+        {
+            return _config.FavoritePaths.Contains(path);
+        }
+
+        /// <summary>
+        /// 즐겨찾기를 토글한다(있으면 제거, 없으면 최상단 추가).
+        /// </summary>
+        /// <param name="path">토글할 경로</param>
+        public void ToggleFavorite(string path)
+        {
+            if (string.IsNullOrWhiteSpace(path) == true)
+            {
+                return;
+            }
+
+            if (_config.FavoritePaths.Remove(path) == false)
+            {
+                _config.FavoritePaths.Insert(0, path);
+            }
+        }
+
         /// <summary>
         /// config 파일을 읽어 상태를 채운다. 파일 부재/손상 시 빈 상태로 시작한다.
         /// </summary>
@@ -110,6 +143,7 @@ namespace ClaudeCodeHelper
         public void RemovePath(string path)
         {
             _config.PathHistory.Remove(path);
+            _config.FavoritePaths.Remove(path);
 
             if (_config.LastUsedPath == path)
             {
@@ -118,11 +152,12 @@ namespace ClaudeCodeHelper
         }
 
         /// <summary>
-        /// 모든 경로를 제거한다.
+        /// 모든 경로를 제거한다(즐겨찾기 포함).
         /// </summary>
         public void ClearAll()
         {
             _config.PathHistory.Clear();
+            _config.FavoritePaths.Clear();
             _config.LastUsedPath = "";
         }
 
