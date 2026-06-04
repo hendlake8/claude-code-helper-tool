@@ -54,12 +54,13 @@
                 <ColumnDefinition Width="*"/>
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <TextBox Grid.Column="0" x:Name="txtCommand" Height="28" VerticalContentAlignment="Center"
+            <TextBox Grid.Column="0" x:Name="txtCommand" Height="48" VerticalContentAlignment="Top"
+                     Padding="2,8,2,0"
                      AcceptsReturn="False" TextWrapping="NoWrap"
                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled"
                      FontFamily="Consolas" Margin="0,0,8,0"/>
             <Button Grid.Column="1" x:Name="btnRun" Content="선택 프로젝트에서 실행"
-                    Click="BtnRun_Click" Padding="10,0" Height="30"/>
+                    Click="BtnRun_Click" Padding="10,0" Height="30" VerticalAlignment="Top"/>
         </Grid>
 
         <!-- Row3: 설치된 MCP 라벨 + 새로고침 + 제거 -->
