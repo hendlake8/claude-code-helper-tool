@@ -133,6 +133,9 @@ public class AppConfig
 
     /// <summary>마지막으로 실행한 경로.</summary>
     public string LastUsedPath { get; set; } = "";
+
+    /// <summary>모든 권한으로 실행 여부(전역 토글).</summary>
+    public bool FullPermissionMode { get; set; } = false;
 }
 ```
 
@@ -151,6 +154,9 @@ public class PathManager
 
     /// <summary>마지막 사용 경로.</summary>
     public string LastUsedPath { get; }
+
+    /// <summary>모든 권한으로 실행 여부(전역 토글).</summary>
+    public bool FullPermissionMode { get; set; }
 
     /// <summary>config 파일을 읽어 상태를 채운다. 파일 부재/손상 시 빈 상태로 시작.</summary>
     public void Load();
@@ -183,7 +189,8 @@ public static class ProcessLauncher
 {
     /// <summary>지정 폴더에서 cmd.exe로 claude CLI를 실행한다(/k로 창 유지).</summary>
     /// <param name="workingDirectory">작업 디렉터리</param>
-    public static void LaunchClaude(string workingDirectory);
+    /// <param name="fullPermission">true면 --dangerously-skip-permissions 플래그로 모든 권한 부여</param>
+    public static void LaunchClaude(string workingDirectory, bool fullPermission);
 
     /// <summary>탐색기로 지정 폴더를 연다.</summary>
     /// <param name="path">열 폴더 경로</param>
@@ -192,7 +199,8 @@ public static class ProcessLauncher
 ```
 
 - **config 경로 결정**: `Path.Combine(AppContext.BaseDirectory, "ClaudeCodeHelper.json")`.
-- **`LaunchClaude` 핵심**: `ProcessStartInfo { FileName="cmd.exe", Arguments="/k claude", WorkingDirectory=workingDirectory, UseShellExecute=true }` → `Process.Start`.
+- **`LaunchClaude` 핵심**: `ProcessStartInfo { FileName="cmd.exe", Arguments=fullPermission ? "/k claude --dangerously-skip-permissions" : "/k claude", WorkingDirectory=workingDirectory, UseShellExecute=true }` → `Process.Start`.
+- **전역 권한 토글**: `chkFullPermission`(CheckBox) 상태를 `MainWindow` 생성자에서 `FullPermissionMode`로 복원(초기화 가드로 startup 저장 방지), `ChkFullPermission_Changed`에서 변경 시 `Save`. 실행 시 체크 상태를 `LaunchClaude`에 전달.
 
 ## 주요 흐름 — "실행" 클릭
 
@@ -210,13 +218,14 @@ sequenceDiagram
         W->>P: AddPath(path)  // 최상단 이동 + LastUsedPath
         W->>P: Save()
         W->>W: RefreshPathList()  // lstPaths 재바인딩
-        W->>L: LaunchClaude(path)
-        L-->>U: cmd 창에서 claude 실행
+        W->>L: LaunchClaude(path, chkFullPermission 체크 여부)
+        L-->>U: cmd 창에서 claude 실행 (체크 시 --dangerously-skip-permissions)
     end
 ```
 
 기타 핸들러 요약:
 - **BtnBrowse**: `OpenFolderDialog` → 선택 시 `txtPath`에 반영.
+- **ChkFullPermission_Changed**: 체크 변경 시 `FullPermissionMode` 갱신 + `Save` (초기화 가드 적용).
 - **LstPaths_SelectionChanged**: 선택 항목 → `txtPath`에 반영.
 - **BtnDelete**: 선택 없으면 안내 / 확인 후 `RemovePath` → `Save` → `RefreshPathList`.
 - **BtnClearAll**: 확인 후 `ClearAll` → `Save` → `RefreshPathList`.
@@ -231,7 +240,8 @@ sequenceDiagram
 - [x] FR-1 경로 입력/선택 — `txtPath` + `BtnBrowse_Click`(OpenFolderDialog)
 - [x] FR-2 Claude 실행 — `BtnRun_Click` → 검증 → `AddPath`/`Save` → `LaunchClaude`(cmd /k claude)
 - [x] FR-3 목록 관리 — `lstPaths` + Delete/ClearAll/OpenFolder 핸들러
-- [x] FR-4 설정 영속화 — `AppConfig` + `PathManager.Load/Save` + `System.Text.Json`, 빈 목록 시작
+- [x] FR-4 설정 영속화 — `AppConfig`(+ `FullPermissionMode`) + `PathManager.Load/Save` + `System.Text.Json`, 빈 목록 시작
+- [x] FR-5 모든 권한으로 실행 — `chkFullPermission`(전역 토글) → `LaunchClaude(path, fullPermission)`, 상태 `FullPermissionMode`로 영속화
 - [x] 비기능: 계층 분리(PathManager/ProcessLauncher), config 손상 시 빈 상태 시작(`Load` try/catch)
 
 ## 미해결 / 추후 결정 사항

@@ -13,6 +13,9 @@ namespace ClaudeCodeHelper
         /// <summary>경로 히스토리 관리자.</summary>
         private readonly PathManager _pathManager;
 
+        /// <summary>초기화 중 체크박스 이벤트로 인한 불필요한 저장을 막는 가드.</summary>
+        private bool _initializing = true;
+
         /// <summary>
         /// 윈도우를 생성하고 저장된 경로 목록을 불러온다.
         /// </summary>
@@ -25,6 +28,9 @@ namespace ClaudeCodeHelper
             RefreshPathList();
 
             txtPath.Text = _pathManager.LastUsedPath;
+            chkFullPermission.IsChecked = _pathManager.FullPermissionMode;
+
+            _initializing = false;
         }
 
         #region UI Helpers
@@ -89,12 +95,28 @@ namespace ClaudeCodeHelper
 
             try
             {
-                ProcessLauncher.LaunchClaude(path);
+                ProcessLauncher.LaunchClaude(path, chkFullPermission.IsChecked == true);
             }
             catch (System.Exception ex)
             {
                 MessageBox.Show($"실행 중 오류가 발생했습니다:\n{ex.Message}", "ClaudeCodeHelper", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        /// <summary>
+        /// "모든 권한으로 실행" 체크 변경 — 상태를 config에 저장한다.
+        /// </summary>
+        /// <param name="sender">이벤트 발생 컨트롤</param>
+        /// <param name="e">이벤트 인자</param>
+        private void ChkFullPermission_Changed(object sender, RoutedEventArgs e)
+        {
+            if (_initializing == true)
+            {
+                return;
+            }
+
+            _pathManager.FullPermissionMode = chkFullPermission.IsChecked == true;
+            _pathManager.Save();
         }
 
         /// <summary>

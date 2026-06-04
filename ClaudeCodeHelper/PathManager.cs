@@ -43,6 +43,13 @@ namespace ClaudeCodeHelper
             get { return _config.LastUsedPath; }
         }
 
+        /// <summary>모든 권한으로 실행 여부.</summary>
+        public bool FullPermissionMode
+        {
+            get { return _config.FullPermissionMode; }
+            set { _config.FullPermissionMode = value; }
+        }
+
         /// <summary>
         /// config 파일을 읽어 상태를 채운다. 파일 부재/손상 시 빈 상태로 시작한다.
         /// </summary>

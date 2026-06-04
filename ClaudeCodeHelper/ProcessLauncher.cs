@@ -11,12 +11,17 @@ namespace ClaudeCodeHelper
         /// 지정 폴더에서 cmd.exe로 claude CLI를 실행한다(/k로 창 유지).
         /// </summary>
         /// <param name="workingDirectory">작업 디렉터리</param>
-        public static void LaunchClaude(string workingDirectory)
+        /// <param name="fullPermission">true면 --dangerously-skip-permissions 플래그로 모든 권한 부여</param>
+        public static void LaunchClaude(string workingDirectory, bool fullPermission)
         {
+            string arguments = fullPermission == true
+                ? "/k claude --dangerously-skip-permissions"
+                : "/k claude";
+
             ProcessStartInfo startInfo = new()
             {
                 FileName = "cmd.exe",
-                Arguments = "/k claude",
+                Arguments = arguments,
                 WorkingDirectory = workingDirectory,
                 UseShellExecute = true
             };

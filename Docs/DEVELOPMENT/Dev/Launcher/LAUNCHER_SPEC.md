@@ -28,9 +28,16 @@
 
 ### FR-4 설정 영속화
 - config 파일: `ClaudeCodeHelper.json` (실행 파일 옆).
-- 구조: `PathHistory`(string 배열) + `LastUsedPath`(string).
+- 구조: `PathHistory`(string 배열) + `LastUsedPath`(string) + `FullPermissionMode`(bool).
 - 첫 실행 시 빈 목록(`PathHistory: []`)에서 시작.
 - 직렬화/역직렬화: `System.Text.Json` 사용.
+
+### FR-5 모든 권한으로 실행 (전역 토글)
+- 목적: 선택한 프로젝트에서 Claude가 모든 권한을 부여받게 한다(권한 프롬프트 생략).
+- "모든 권한으로 실행" 체크박스(`chkFullPermission`) — 런처 전체에 적용되는 **전역 토글**.
+- 체크 ON 시 실행: `cmd /k claude --dangerously-skip-permissions`, OFF 시: `cmd /k claude`.
+- 체크 상태는 `FullPermissionMode`로 config에 저장 → 재시작 시 복원.
+- 전역 토글이므로 신규 프로젝트도 현재 토글 상태를 그대로 따름(경로별 설정 없음).
 
 ## 비기능 요구사항
 
@@ -44,10 +51,11 @@
 | 항목 | 결정 | 비고 |
 |------|------|------|
 | 프레임워크 | WPF / .NET 8 | 기존 스캐폴딩 유지 (원본은 WinForms였음) |
-| 복원 범위 | 원본 1:1 | 동작 동일, 신규 기능 없음 |
+| 복원 범위 | 원본 1:1 + α | 1:1 복원 후 "모든 권한으로 실행"(FR-5) 추가 |
 | 실행 방식 | `cmd /k claude` | 원본과 동일, 검증된 방식 |
 | config 파일명 | `ClaudeCodeHelper.json` | 빈 목록 시작, 기존 파일 마이그레이션 안 함 |
 | JSON 처리 | `System.Text.Json` | 원본의 정규식 자체 파서(`SimpleJsonParser`)는 복원하지 않음 — 동작 동일 + 견고 |
+| 권한 부여 방식 | 전역 토글(C안) | 경로별이 아닌 런처 전역 1개. `--dangerously-skip-permissions` 플래그 방식(파일 미생성) |
 
 ## 미해결
 
