@@ -1,0 +1,82 @@
+## Visual Studio / .NET gitignore
+
+# 빌드 결과물
+[Bb]in/
+[Oo]bj/
+[Oo]ut/
+/Build/
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Ww][Ii][Nn]32/
+[Aa][Rr][Mm]/
+[Aa][Rr][Mm]64/
+bld/
+[Ll]og/
+[Ll]ogs/
+
+# Visual Studio 캐시 / 사용자 설정
+.vs/
+*.user
+*.userosscache
+*.suo
+*.userprefs
+*.dbmdl
+*.jfm
+
+# 빌드 / 패키지 캐시
+project.lock.json
+project.fragment.lock.json
+artifacts/
+*.nupkg
+*.snupkg
+**/[Pp]ackages/*
+!**/[Pp]ackages/build/
+
+# MSBuild / Roslyn 임시 파일
+*.tmp
+*.tmp_proj
+*_wpftmp.csproj
+*.binlog
+
+# 테스트 결과
+[Tt]est[Rr]esult*/
+[Bb]uild[Ll]og.*
+*.VisualState.xml
+TestResult.xml
+[Cc]overage*/
+*.coverage
+*.coveragexml
+
+# ReSharper / Rider
+_ReSharper*/
+*.[Rr]e[Ss]harper
+*.DotSettings.user
+.idea/
+
+# 기타 IDE / OS
+*.swp
+*.bak
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# 게시 출력
+publish/
+*.[Pp]ublish.xml
+*.azurePubxml
+*.pubxml
+*.publishproj
+PublishScripts/
+
+.serena/
+.hs/
+
+# AI 이미지 생성 산출물 (gi) — app.ico는 ClaudeCodeHelper/ 안에 별도 보관
+/GenImg/
+/GenHistory/
