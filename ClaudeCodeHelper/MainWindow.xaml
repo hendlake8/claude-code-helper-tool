@@ -75,6 +75,7 @@
                 <Button x:Name="btnClearAll"   Content="전체 삭제"  Click="BtnClearAll_Click"   Margin="0,0,0,6" Height="28"/>
                 <Button x:Name="btnOpenFolder" Content="폴더 열기"  Click="BtnOpenFolder_Click" Height="28"/>
                 <Button x:Name="btnMcpManager" Content="로컬MCP 관리"  Click="BtnMcpManager_Click" Margin="0,16,0,0" Height="28"/>
+                <Button x:Name="btnUpdateClaude" Content="CLI 업데이트" ToolTip="claude update 실행" Click="BtnUpdateClaude_Click" Margin="0,6,0,0" Height="28"/>
             </StackPanel>
         </Grid>
     </Grid>

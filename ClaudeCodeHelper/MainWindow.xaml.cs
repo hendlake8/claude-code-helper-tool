@@ -284,6 +284,23 @@ namespace ClaudeCodeHelper
             McpManagerWindow window = new(_pathManager) { Owner = this };
             window.Show();
         }
+
+        /// <summary>
+        /// "CLI 업데이트" — 새 cmd 창에서 claude update를 실행한다.
+        /// </summary>
+        /// <param name="sender">이벤트 발생 컨트롤</param>
+        /// <param name="e">이벤트 인자</param>
+        private void BtnUpdateClaude_Click(object sender, RoutedEventArgs e)
+        {
+            try
+            {
+                ProcessLauncher.UpdateClaude();
+            }
+            catch (System.Exception ex)
+            {
+                MessageBox.Show($"업데이트 실행 중 오류가 발생했습니다:\n{ex.Message}", "ClaudeCodeHelper", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
         #endregion
     }
 }

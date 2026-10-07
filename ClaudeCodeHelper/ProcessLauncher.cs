@@ -30,6 +30,21 @@ namespace ClaudeCodeHelper
         }
 
         /// <summary>
+        /// cmd.exe로 claude update를 실행한다(/k로 창 유지해 결과 확인).
+        /// </summary>
+        public static void UpdateClaude()
+        {
+            ProcessStartInfo startInfo = new()
+            {
+                FileName = "cmd.exe",
+                Arguments = "/k claude update",
+                UseShellExecute = true
+            };
+
+            Process.Start(startInfo);
+        }
+
+        /// <summary>
         /// 탐색기로 지정 폴더를 연다.
         /// </summary>
         /// <param name="path">열 폴더 경로</param>
