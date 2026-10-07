@@ -7,6 +7,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
     <ApplicationIcon>app.ico</ApplicationIcon>
+    <!-- 릴리즈 버전: exe 파일 속성(파일/제품 버전)에 표시된다. 릴리즈 태그와 맞춰 갱신 -->
+    <Version>1.0.3</Version>
   </PropertyGroup>
 
   <!-- Release publish 설정: .NET 8의 `dotnet publish`는 기본 Release이므로
